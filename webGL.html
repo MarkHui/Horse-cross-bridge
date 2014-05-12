@@ -1,0 +1,645 @@
+<html>
+<head>
+</head>
+<body onload="init();">
+	<table>
+		<tr>
+			<td>v:</td>
+			<td>Change view</td>
+		</tr>
+		<tr>
+			<td>n:</td>
+			<td>new game</td>
+		</tr>
+		<tr>
+			<td>+:</td>
+			<td>Speed up</td>
+		</tr>
+		<tr>
+			<td>-:</td>
+			<td>Slow down</td>
+		</tr>
+		<tr>
+			<td>Speed:</td>
+			<td id="speed">0</td>
+		</tr>
+	</table>
+	<b id="msg"></b><br/>
+	<script src="three.min.js"></script>
+	<script src="BinaryLoader.js"></script>
+	<script src="Mirror.js"></script>
+	<script src="WaterShader.js"></script>
+	<script type="text/javascript">
+		Array.prototype.remove=function(item){
+			var index=this.indexOf(item);
+			if(index>=0){
+				this.splice(index,1);
+			}
+		};
+		Array.prototype.removeAt=function(index){
+			this.splice(index,1);
+		};
+		
+		var run=true;
+		// revolutions per second
+		var angularSpeed = 0.2; 
+		var angle=0;
+		var lastTime = 0;
+		//logic variable
+		var state=0;//0:stationary, 1:up, 2:down, 3:left, 4:right
+		var directionPressed=new Array();
+		
+		//WebGL variable
+		var renderer;
+		var camera;
+		var scene;
+		var sun;
+		var ambientLight;
+		var character;
+		var woodTexture;
+		var blocksList;
+		var blocksSpeed;
+		var lastmove=0;
+		var carGeometry,carMaterials;
+		var characterGeometry,characterMaterials;
+		var water;
+		
+		//Setting parameter
+		var gameWidth=800;
+		var gameHeight=600;
+		var overdraw=false;
+		
+		var sunR=1000;
+		var sunHeight=500;
+		
+		var roadW=35;
+		var roadL=5;
+		var roadH=1;
+		
+		var landL=1;
+		
+		var caryOffset=-0.2;
+		
+		var viewz=18;
+		var viewy=18;
+		
+		var characterSpeed=1;
+		var characterStraightW=0.4;
+		var characterSideW=1.2;
+		var characterW=0.4;
+		var characterWidthRestriction=23;
+		var characterZOffset=-0.2;
+		
+		var margin=16;
+		
+		var seaW=50;
+		var seaL=5;
+		
+		var carW=2;
+		var charView=false;
+		
+		var speedOffset=0;
+		
+		var waterOffset=1.0/60.0;
+		
+		var parameters={
+			width:50,
+			height:25,
+			widthSegments:250,
+			heightSegments:250,
+			depth:1500,
+			param:4,
+			filterparam:1
+		}
+		
+		function init(){
+			document.addEventListener("keydown", onDocumentKeyDown, false);
+			initCar();
+		}
+		
+		function init2(){
+			blocksList=new Array(2*roadL);
+			for(var i=0;i<2*roadL;i++){
+				blocksList[i]=new Array();
+			}
+			blocksSpeed=new Array(2*roadL);
+			for(var i=0;i<2*roadL;i++){
+				blocksSpeed[i]=getRandomInt(1,3);
+			}
+
+			// renderer
+			renderer = new THREE.WebGLRenderer();
+			renderer.setSize(gameWidth,gameHeight);
+			document.body.appendChild(renderer.domElement);
+
+			// camera
+			//VIEW_ANGLE,ASPECT,NEAR,FAR
+			camera=new THREE.PerspectiveCamera(45,gameWidth/gameHeight,1,1000);
+
+			// scene
+			scene = new THREE.Scene();
+			
+			//lighting
+			var ambient=new THREE.AmbientLight(0x020202);
+			scene.add(ambient);
+
+			var directionalLight=new THREE.DirectionalLight(0xffffff);
+			directionalLight.position.set(1,1,0.5).normalize();
+			scene.add(directionalLight);
+
+			var pointLight=new THREE.PointLight(0xffaa00);
+			pointLight.position.set(0,0,0);
+			scene.add(pointLight);
+				
+			var road=new THREE.Mesh(new THREE.CubeGeometry(roadW,roadH,roadL),new THREE.MeshLambertMaterial({map:THREE.ImageUtils.loadTexture('road.jpg')}));
+			road.position.z=roadL/2;
+			road.overdraw=overdraw;
+			scene.add(road);
+			
+			var land=new THREE.Mesh(new THREE.CubeGeometry(roadW,roadH,landL),new THREE.MeshLambertMaterial({map:THREE.ImageUtils.loadTexture('land.jpg')}));
+			land.position.z=roadL+(landL)/2;
+			land.overdraw=overdraw;
+			scene.add(land);
+			
+			var brickTexture=new THREE.MeshLambertMaterial({map:THREE.ImageUtils.loadTexture('brick.jpg')});
+			var destB=new THREE.Mesh(new THREE.CubeGeometry(roadW,roadH,landL),brickTexture);
+			destB.position.z-=roadL+(landL)/2;
+			destB.overdraw=overdraw;
+			scene.add(destB);
+			
+			var destL=new THREE.Mesh(new THREE.CubeGeometry(roadW/2-1,roadH,landL),brickTexture);
+			destL.position.z-=roadL+(landL)/2;
+			destL.position.x-=1+(roadW/2-1)/2;
+			destL.position.y=roadH;
+			destL.overdraw=overdraw;
+			scene.add(destL);
+			
+			var destR=new THREE.Mesh(new THREE.CubeGeometry(roadW/2-1,roadH,landL),brickTexture);
+			destR.position.z-=roadL+(landL)/2;
+			destR.position.x=1+(roadW/2-1)/2;
+			destR.position.y=roadH;
+			destR.overdraw=overdraw;
+			scene.add(destR);
+			
+			var home=new THREE.Mesh(new THREE.CubeGeometry(seaW,roadH,35),new THREE.MeshLambertMaterial({map:THREE.ImageUtils.loadTexture('home.jpg')}));
+			home.position.z-=roadL+35/2;
+			home.overdraw=overdraw;
+			scene.add(home);
+			
+			/*var sea=new THREE.Mesh(new THREE.CubeGeometry(seaW,roadH,seaL),new THREE.MeshLambertMaterial({map:THREE.ImageUtils.loadTexture('sea.jpg')}));
+			sea.position.z-=seaL/2;
+			sea.position.y-=roadH/2;
+			sea.overdraw=overdraw;
+			scene.add(sea);*/
+			
+			//character=new THREE.Mesh(new THREE.CubeGeometry(1,1,1),brickTexture);
+			character=new THREE.Mesh(characterGeometry,characterMaterials);
+			character.overdraw=overdraw;
+			character.scale.set(0.008,0.005,0.004);
+			scene.add(character);
+
+			/*var animation=new THREE.MorphAnimation(character);
+			animation.play();*/
+			
+			//ocean
+			var waterNormals=new THREE.ImageUtils.loadTexture('waternormals.jpg');
+			waterNormals.wrapS=waterNormals.wrapT=THREE.RepeatWrapping; 
+
+			water=new THREE.Water(renderer,camera,scene,{
+				textureWidth:512, 
+				textureHeight:512,
+				waterNormals:waterNormals,
+				alpha:1.0,
+				sunDirection:directionalLight.position.normalize(),
+				sunColor:0xffffff,
+				waterColor:0x001e0f,
+				distortionScale:50.0,
+			});
+
+
+			var mirrorMesh=new THREE.Mesh(
+				new THREE.PlaneGeometry(parameters.width,parameters.height,roadH,50), 
+				water.material
+			);
+			
+
+			mirrorMesh.add(water);
+			mirrorMesh.rotation.x=-Math.PI*0.5;
+			scene.add(mirrorMesh);
+			
+			woodTexture=new THREE.MeshLambertMaterial({map:THREE.ImageUtils.loadTexture('wood.jpg')});
+			
+			for(var i=0;i<blocksList.length;i++){
+				(function(index){
+					setTimeout(function(){generateBlock(index);},Math.floor(Math.random()*3000));
+				})(i);
+			}
+			
+			// start animation
+			newGame();
+		}
+ 
+		// this function is executed on each animation frame
+		function animate(){
+			// update
+			var time=(new Date()).getTime();
+			var timeDiff=time-lastTime;
+			/*var angleChange = angularSpeed * timeDiff * 2 * Math.PI / 1000;
+			angle+=angleChange;
+			//cube.rotation.y += angleChange;
+			camera.position.z=viewz*Math.cos(angle);
+			camera.position.x=viewz*Math.sin(angle);
+			camera.lookAt(new THREE.Vector3(0,0,0));*/
+			if(charView){
+				camera.position.x=character.position.x;
+				camera.position.y=character.position.y+2;
+				camera.position.z=character.position.z+2;
+				camera.lookAt(new THREE.Vector3(character.position.x,character.position.y,character.position.z-1));
+			}else{
+				camera.position.x=0;
+				camera.position.y=viewy;
+				camera.position.z=viewz;
+				camera.lookAt(new THREE.Vector3(0,0,0));
+			}
+			
+			var die=false;
+			for(var i=0;i<blocksList.length;i++){
+				for(var j=0;j<blocksList[i].length;j++){
+					if(i<roadL){
+						if(i%2){
+							blocksList[i][j].position.x-=timeDiff/1000*(blocksSpeed[i]+speedOffset);
+							if(blocksList[i][j].position.x<-margin-carW/2){
+								scene.remove(blocksList[i][j]);
+								blocksList[i].removeAt(j);
+								j--;
+							}
+						}else{
+							blocksList[i][j].position.x+=timeDiff/1000*(blocksSpeed[i]+speedOffset);
+							if(blocksList[i][j].position.x>margin+carW/2){
+								scene.remove(blocksList[i][j]);
+								blocksList[i].removeAt(j);
+								j--;
+							}
+						}
+					}else{
+						if(i%2){
+							blocksList[i][j].position.x-=timeDiff/1000*(blocksSpeed[i]+speedOffset);
+							if(blocksList[i][j].position.x<-margin-blocksList[i][j].geometry.width/2){
+								scene.remove(blocksList[i][j]);
+								blocksList[i].removeAt(j);
+								j--;
+							}
+						}else{
+							blocksList[i][j].position.x+=timeDiff/1000*(blocksSpeed[i]+speedOffset);
+							if(blocksList[i][j].position.x>margin+blocksList[i][j].geometry.width/2){
+								scene.remove(blocksList[i][j]);
+								blocksList[i].removeAt(j);
+								j--;
+							}
+						}
+					}
+				}
+				if(Math.round((roadL-1/2-i+characterZOffset)*10)==Math.round(character.position.z*10)){
+					if(i<roadL){
+						for(var j=0;j<blocksList[i].length;j++){
+							if(blocksList[i][j].position.x>=character.position.x){
+								if(blocksList[i][j].position.x-carW/2<character.position.x+characterW/2){
+									die=true;
+								}
+							}else{
+								if(blocksList[i][j].position.x+carW/2>character.position.x-characterW/2){
+									die=true;
+								}
+							}
+						}
+					}else{
+						die=true;
+						for(var j=0;j<blocksList[i].length;j++){
+							if(character.position.x>=blocksList[i][j].position.x-blocksList[i][j].geometry.width/2&&
+								character.position.x<=blocksList[i][j].position.x+blocksList[i][j].geometry.width/2){
+								die=false;
+								if(i%2){
+									character.position.x-=timeDiff/1000*(blocksSpeed[i]+speedOffset);
+								}else{
+									character.position.x+=timeDiff/1000*(blocksSpeed[i]+speedOffset);
+								}
+							}
+						}
+					}
+				}
+			}
+			
+			//water animate
+			water.material.uniforms.time.value+=(timeDiff/100.0+speedOffset/5.0)*waterOffset;
+			water.render();
+			
+			if(die){
+				run=false;
+				document.getElementById("msg").innerHTML="You lose";
+			}
+			
+			lastTime=time;
+
+			// render
+			renderer.render(scene, camera);
+
+			if(run){
+				// request new frame
+				requestAnimationFrame(function(){
+					animate();
+				});
+			}
+		}
+		
+		function generateBlock(row){
+			if(run){
+				if(Math.random()>0.3){
+					var temp_width=getRandomInt(2,6);
+					var temp;
+					if(row<roadL){
+						temp=new THREE.Mesh(carGeometry,carMaterials);
+						if(row%2)
+							temp.rotation.y=3*Math.PI/2;
+						else
+							temp.rotation.y=Math.PI/2;
+						temp.scale.set(0.1,0.1,0.1);
+					}else{
+						temp=new THREE.Mesh(new THREE.CubeGeometry(temp_width,roadH,1),woodTexture);
+					}
+					blocksList[row].push(temp);
+					temp.position.z=roadL-1/2-row;
+					if(row%2){
+						temp.position.x+=margin+temp_width/2;
+					}else{
+						temp.position.x-=margin+temp_width/2;
+					}
+					if(row<roadL){
+						temp.position.y=roadH+caryOffset;
+					}
+					temp.overdraw=overdraw;
+					scene.add(temp);
+					//setTimeout(function(){generateBlock(row);},(temp_width+2)*1000);
+					setTimeout(function(){generateBlock(row);},calculateTimeInterval(row,temp_width,true));
+				}else{
+					//setTimeout(function(){generateBlock(row);},getRandomInt(1,2)*1000);
+					setTimeout(function(){generateBlock(row);},calculateTimeInterval(row,0,false));
+				}
+			}else{
+				setTimeout(function(){generateBlock(row);},3000);
+			}
+		}
+		
+		function newGame(){
+			document.getElementById("msg").innerHTML="";
+			
+			//reset camera
+			camera.position.x=0;
+			camera.position.y=viewy;
+			camera.position.z=viewz;
+			camera.lookAt(new THREE.Vector3(0,0,0));
+			
+			//reset character
+			character.position.x=0;
+			character.position.y=roadH-0.5;//roadH;
+			character.position.z=roadL+(landL)/2+characterZOffset;
+			character.rotation.y=Math.PI;
+			
+			//clear blocks
+			for(var i=0;i<blocksList.length;i++){
+				for(var j=0;j<blocksList[i].length;j++){
+					scene.remove(blocksList[i][j]);
+					blocksList[i].removeAt(j);
+					j--;
+				}
+			}
+			
+			//reset the view
+			charView=false;
+			
+			//random create blocks
+			for(var i=0;i<blocksList.length;i++){
+				var temp_pos=-margin+8;
+				while(temp_pos<margin-8){
+					temp_pos=getRandomInt(temp_pos,temp_pos+4);
+					var temp_width=carW;
+					var temp;
+					if(i<roadL){
+						temp=new THREE.Mesh(carGeometry,carMaterials);
+						if(i%2)
+							temp.rotation.y=3*Math.PI/2;
+						else
+							temp.rotation.y=Math.PI/2;
+						temp.scale.set(0.1,0.1,0.1);
+					}else{
+						temp_width=getRandomInt(2,6);
+						temp=new THREE.Mesh(new THREE.CubeGeometry(temp_width,roadH,1),woodTexture);
+					}
+					blocksList[i].push(temp);
+					temp.position.z=roadL-1/2-i;
+					temp.position.x=temp_pos;
+					if(i<roadL){
+						temp.position.y=roadH+caryOffset;
+					}
+					temp.overdraw=overdraw;
+					scene.add(temp);
+					temp_pos+=temp_width/2+6;
+				}
+			}
+			
+			run=true;
+			lastTime=(new Date()).getTime();
+			animate();
+		}
+		
+		function initCar(){
+			var camaroMaterials = {
+				body: {
+					Orange: new THREE.MeshLambertMaterial( {
+						color: 0xff6600
+					} ),
+					Blue: new THREE.MeshLambertMaterial( {
+						color: 0x226699
+					} ),
+					Red: new THREE.MeshLambertMaterial( {
+						color: 0x660000
+					} ),
+					Black: new THREE.MeshLambertMaterial( {
+						color: 0x000000
+					} ),
+					White: new THREE.MeshLambertMaterial( {
+						color: 0xffffff
+					} ),
+					Carmine: new THREE.MeshPhongMaterial( {
+						color: 0x770000
+					} ),
+					Gold: new THREE.MeshPhongMaterial( {
+						color: 0xaa9944
+					} ),
+					Bronze: new THREE.MeshPhongMaterial( {
+						color: 0x150505
+					} ),
+					Chrome: new THREE.MeshPhongMaterial( {
+						color: 0xffffff
+					} )
+				},
+				chrome: new THREE.MeshLambertMaterial( {
+					color: 0xffffff,
+				} ),
+				darkchrome: new THREE.MeshLambertMaterial( {
+					color: 0x444444,
+				} ),
+				glass: new THREE.MeshBasicMaterial( {
+					color: 0x223344
+				} ),
+				tire: new THREE.MeshLambertMaterial( {
+					color: 0x050505
+				} ),
+				interior: new THREE.MeshPhongMaterial( {
+					color: 0x050505
+				} ),
+				black: new THREE.MeshLambertMaterial( {
+					color: 0x000000
+				} )
+			};
+			var loader=new THREE.BinaryLoader();
+			loader.load("CamaroNoUv_bin.js",function(geometry){
+				var m=new THREE.MeshFaceMaterial();//s = 75, 
+
+				m.materials[0]=camaroMaterials.body["Orange"]; // car body
+				m.materials[1]=camaroMaterials.chrome; // wheels chrome
+				m.materials[2]=camaroMaterials.chrome; // grille chrome
+				m.materials[3]=camaroMaterials.darkchrome; // door lines
+				m.materials[4]=camaroMaterials.glass; // windshield
+				m.materials[5]=camaroMaterials.interior; // interior
+				m.materials[6]=camaroMaterials.tire; // tire
+				m.materials[7]=camaroMaterials.black; // tireling
+				m.materials[8]=camaroMaterials.black; // behind grille
+
+				carGeometry=geometry;
+				carMaterials=m;
+				initCharacter();
+			});
+		}
+		
+		function initCharacter(){
+			var loader=new THREE.JSONLoader(true);
+			loader.load("horse.js",function(geometry){
+				characterGeometry=geometry;
+				characterMaterials=new THREE.MeshLambertMaterial({color:0x606060,morphTargets:true});
+				init2();
+			});
+		}
+		
+		function calculateTimeInterval(row,temp_width,generated){
+			if(generated){
+				return Math.floor((temp_width+2)*1000/(blocksSpeed[row]+speedOffset))+1000;
+			}else{
+				return Math.floor(2000/(blocksSpeed[row]+speedOffset))+1000;
+			}
+			/*if(row<roadL){
+				if(generated){
+					if((blocksSpeed[row]+speedOffset)>1)
+						return (temp_width)*1000;
+					else{
+						return (temp_width+2)*1000;
+					}
+				}else{
+					return getRandomInt(1,2)*1000;
+				}
+			}else{
+				if(generated){
+					return Math.floor((temp_width+2)*1000/(blocksSpeed[row]+speedOffset));
+				}else{
+					return Math.floor(2000/(blocksSpeed[row]+speedOffset));
+				}
+			}*/
+		}
+		
+		/*up:38
+		down:40
+		left:37
+		right:39
+		space:32
+		v:86
+		r:82
+		n:78
+		+:107
+		-:109*/
+		function onDocumentKeyDown(e){
+			e.preventDefault();
+			e.stopPropagation();
+			var time=(new Date()).getTime();
+			switch(e.which){
+				case 38:
+					if(run){
+						character.rotation.y=Math.PI;
+						characterW=characterStraightW;
+						if(character.position.z-characterSpeed>-roadL){
+							character.position.z-=characterSpeed;
+						//win
+						}else if(character.position.x-characterW/2>=-1&&character.position.x+characterW/2<=1){
+							character.position.z-=characterSpeed;
+							run=false;
+							document.getElementById("msg").innerHTML="You win";
+						}
+					}
+					break;
+				case 40:
+					if(run){
+						character.rotation.y=0;
+						characterW=characterStraightW;
+						if(character.position.z+characterSpeed<roadL){
+							character.position.z+=characterSpeed;
+						}
+					}
+					break;
+				case 37:
+					if(run){
+						character.rotation.y=3*Math.PI/2;
+						characterW=characterSideW;
+						if(character.position.x-characterSpeed/2>-characterWidthRestriction/2){
+							character.position.x-=characterSpeed/2;
+						}
+					}
+					break;
+				case 39:
+					if(run){
+						character.rotation.y=Math.PI/2;
+						characterW=characterSideW;
+						if(character.position.x+characterSpeed/2<characterWidthRestriction/2){
+							character.position.x+=characterSpeed/2;
+						}
+					}
+					break;
+				case 86:
+					charView=!charView;
+					break;
+				case 82:
+					run=!run;
+					if(run){
+						lastTime=(new Date()).getTime();
+						animate();
+					}
+					break;
+				case 78:
+					run=false;
+					setTimeout(newGame,500);
+					break;
+				case 107:
+					speedOffset++;
+					document.getElementById("speed").innerHTML=speedOffset;
+					break;
+				case 109:
+					if(speedOffset>0)
+						speedOffset--;
+					document.getElementById("speed").innerHTML=speedOffset;
+					break;
+			}
+		}
+		
+		function getRandomInt(min,max){
+			return Math.floor(Math.random()*(max-min+1))+min;
+		}
+	</script>
+</body>
+<html>
